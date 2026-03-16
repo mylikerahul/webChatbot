@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShopAI - Online Shopping</title>
+  <link rel="stylesheet" href="/public/css/chat.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Amazon+Ember:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <div class="topbar">
+    <span>Get <strong>FREE Delivery</strong> on orders over ₹499 | <a href="#">Today's Deals</a></span>
+  </div>
+
+  <!-- Main Header -->
+  <header class="amz-header">
+    <div class="amz-header-inner">
+
+      <!-- Logo -->
+      <div class="amz-logo">
+        <i class="fas fa-shopping-bag"></i>
+        <span>ShopAI</span>
+        <small>.in</small>
+      </div>
+
+      <!-- Delivery Location -->
+      <div class="amz-location">
+        <i class="fas fa-map-marker-alt"></i>
+        <div>
+          <span class="loc-label">Deliver to</span>
+          <span class="loc-city">India</span>
+        </div>
+      </div>
+
+      <!-- Search Bar -->
+      <div class="amz-search">
+        <select class="search-category">
+          <option>All</option>
+          <option>Electronics</option>
+          <option>Grocery</option>
+          <option>Games</option>
+          <option>Kitchen</option>
+        </select>
+        <input type="text" id="searchInput" placeholder="Search products, brands and more">
+        <button id="searchBtn"><i class="fas fa-search"></i></button>
+      </div>
+
+      <!-- Header Right -->
+      <div class="amz-header-right">
+        <div class="amz-nav-item">
+          <span class="nav-label">Hello, User</span>
+          <span class="nav-value">Account &amp; Lists <i class="fas fa-caret-down"></i></span>
+        </div>
+        <div class="amz-nav-item">
+          <span class="nav-label">Returns</span>
+          <span class="nav-value">&amp; Orders</span>
+        </div>
+        <div class="amz-cart">
+          <i class="fas fa-shopping-cart"></i>
+          <span class="cart-count">0</span>
+          <span>Cart</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Nav Bar -->
+  <nav class="amz-navbar">
+    <div class="amz-navbar-inner">
+      <button class="nav-all-btn"><i class="fas fa-bars"></i> All</button>
+      <a href="#" class="nav-link active" data-category="all">All Products</a>
+      <a href="#" class="nav-link" data-category="Electronics">Electronics</a>
+      <a href="#" class="nav-link" data-category="Grocery">Grocery</a>
+      <a href="#" class="nav-link" data-category="Games">Games &amp; Toys</a>
+      <a href="#" class="nav-link" data-category="Kitchen Appliances">Kitchen</a>
+      <a href="#" class="nav-link nav-deal">Today's Deals</a>
+      <a href="#" class="nav-link">New Arrivals</a>
+      <a href="#" class="nav-link">Best Sellers</a>
+      <a href="#" class="nav-link">Customer Service</a>
+    </div>
+  </nav>
+
+  <!-- Hero Banner -->
+  <div class="hero-banner">
+    <div class="hero-slide active">
+      <div class="hero-content">
+        <span class="hero-tag">🔥 Mega Sale</span>
+        <h1>Min. 50% OFF</h1>
+        <p>On Electronics, Kitchen & More</p>
+        <button class="hero-btn">Shop Now <i class="fas fa-arrow-right"></i></button>
+      </div>
+      <div class="hero-bg" style="background: linear-gradient(135deg, #131921 0%, #1a2744 50%, #232f3e 100%)"></div>
+    </div>
+  </div>
+
+  <!-- Filters Strip -->
+  <div class="filter-strip">
+    <div class="filter-strip-inner">
+      <div class="fs-group">
+        <label><i class="fas fa-filter"></i> Price:</label>
+        <select id="priceFilter">
+          <option value="all">All Prices</option>
+          <option value="0-500">Under ₹500</option>
+          <option value="500-1000">₹500 – ₹1,000</option>
+          <option value="1000-5000">₹1,000 – ₹5,000</option>
+          <option value="5000-10000">₹5,000 – ₹10,000</option>
+          <option value="10000-50000">₹10,000 – ₹50,000</option>
+          <option value="50000-999999">Above ₹50,000</option>
+        </select>
+      </div>
+      <div class="fs-group">
+        <label><i class="fas fa-sort"></i> Sort:</label>
+        <select id="sortFilter">
+          <option value="default">Default</option>
+          <option value="price-low">Price: Low to High</option>
+          <option value="price-high">Price: High to Low</option>
+          <option value="rating">Highest Rated</option>
+          <option value="name">Name: A to Z</option>
+        </select>
+      </div>
+      <div class="fs-results">
+        <span>Showing <strong id="totalProducts">0</strong> results</span>
+      </div>
+      <button id="clearFilters" class="fs-clear"><i class="fas fa-times"></i> Clear</button>
+    </div>
+  </div>
+
+  <!-- Loading Spinner -->
+  <div id="loadingSpinner" class="amz-loading">
+    <div class="amz-spinner"></div>
+    <p>Loading products...</p>
+  </div>
+
+  <!-- Main Content -->
+  <main class="amz-main">
+
+    <!-- Sidebar -->
+    <aside class="amz-sidebar">
+      <h4>Department</h4>
+      <ul>
+        <li><a href="#" class="sidebar-link active" data-category="all">All Departments</a></li>
+        <li><a href="#" class="sidebar-link" data-category="Electronics">Electronics</a></li>
+        <li><a href="#" class="sidebar-link" data-category="Grocery">Grocery</a></li>
+        <li><a href="#" class="sidebar-link" data-category="Games">Games &amp; Toys</a></li>
+        <li><a href="#" class="sidebar-link" data-category="Kitchen Appliances">Kitchen Appliances</a></li>
+      </ul>
+      <hr>
+      <h4>Avg. Customer Review</h4>
+      <ul class="rating-filter">
+        <li><a href="#"><span>★★★★★</span> &amp; Up</a></li>
+        <li><a href="#"><span>★★★★☆</span> &amp; Up</a></li>
+        <li><a href="#"><span>★★★☆☆</span> &amp; Up</a></li>
+      </ul>
+      <hr>
+      <h4>Availability</h4>
+      <label class="sidebar-check"><input type="checkbox" id="inStockOnly"> In Stock Only</label>
+    </aside>
+
+    <!-- Products Section -->
+    <section class="amz-products-section">
+      <div class="section-header">
+        <h2>Results</h2>
+      </div>
+      <div id="productsGrid" class="amz-products-grid">
+        <!-- Products rendered here -->
+      </div>
+      <div id="noProducts" class="amz-no-products" style="display:none;">
+        <i class="fas fa-search"></i>
+        <h3>No results found</h3>
+        <p>Try different keywords or clear filters</p>
+        <button id="noProductsClear" class="amz-clear-btn">Clear Filters</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="amz-footer">
+    <a href="#" class="back-to-top">Back to top</a>
+    <div class="footer-cols">
+      <div>
+        <h5>Get to Know Us</h5>
+        <a href="#">About ShopAI</a>
+        <a href="#">Careers</a>
+        <a href="#">Press Releases</a>
+      </div>
+      <div>
+        <h5>Connect with Us</h5>
+        <a href="#">Facebook</a>
+        <a href="#">Twitter</a>
+        <a href="#">Instagram</a>
+      </div>
+      <div>
+        <h5>Make Money with Us</h5>
+        <a href="#">Sell on ShopAI</a>
+        <a href="#">Advertise</a>
+      </div>
+      <div>
+        <h5>Let Us Help You</h5>
+        <a href="#">Your Account</a>
+        <a href="#">Returns</a>
+        <a href="#">Help</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div class="footer-logo"><i class="fas fa-shopping-bag"></i> ShopAI.in</div>
+      <p>&copy; 2024 ShopAI — AI Powered E-commerce</p>
+    </div>
+  </footer>
+
+  <!-- AI Chat Widget -->
+  <div class="chat-widget" id="chatWidget">
+    <div class="chat-header" id="chatHeader">
+      <div class="chat-title">
+        <i class="fas fa-robot"></i>
+        <span>AI Shopping Assistant</span>
+        <span class="chat-online">● Online</span>
+      </div>
+      <button class="minimize-btn" id="minimizeBtn"><i class="fas fa-minus"></i></button>
+    </div>
+    <div class="chat-body" id="chatBody">
+      <div class="chat-messages" id="chatMessages">
+        <div class="message bot-message">
+          <div class="message-avatar">🤖</div>
+          <div class="message-content">
+            <p>Namaste! I'm your AI shopping assistant. Try asking:</p>
+            <ul>
+              <li>"Show laptops under ₹50,000"</li>
+              <li>"Best rated headphones"</li>
+              <li>"Kitchen appliances on budget"</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="chat-input-container">
+        <input type="text" id="chatInput" placeholder="Ask me anything..." />
+        <button id="sendBtn"><i class="fas fa-paper-plane"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <button class="chat-toggle-btn" id="chatToggleBtn">
+    <i class="fas fa-comments"></i>
+    <span class="chat-badge">AI</span>
+  </button>
+
+  <script src="/public/js/chat.js"></script>
+</body>
+</html>

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shopping Cart - ShopAI</title>
+  <link rel="stylesheet" href="/public/css/chat.css">
+  <link rel="stylesheet" href="/public/css/cart.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <div class="topbar">
+    <span>Get <strong>FREE Delivery</strong> on orders over ₹499 | <a href="/">← Continue Shopping</a></span>
+  </div>
+
+  <!-- Header -->
+  <header class="amz-header">
+    <div class="amz-header-inner">
+      <a href="/" class="amz-logo">
+        <i class="fas fa-shopping-bag"></i>
+        <span>ShopAI</span>
+        <small>.in</small>
+      </a>
+      <div class="amz-location">
+        <i class="fas fa-map-marker-alt"></i>
+        <div>
+          <span class="loc-label">Deliver to</span>
+          <span class="loc-city">India</span>
+        </div>
+      </div>
+      <div class="amz-search">
+        <select class="search-category">
+          <option>All</option>
+          <option>Electronics</option>
+          <option>Grocery</option>
+          <option>Games</option>
+          <option>Kitchen</option>
+        </select>
+        <input type="text" placeholder="Search products...">
+        <button><i class="fas fa-search"></i></button>
+      </div>
+      <div class="amz-header-right">
+        <div class="amz-nav-item">
+          <span class="nav-label">Hello, User</span>
+          <span class="nav-value">Account &amp; Lists <i class="fas fa-caret-down"></i></span>
+        </div>
+        <div class="amz-nav-item">
+          <span class="nav-label">Returns</span>
+          <span class="nav-value">&amp; Orders</span>
+        </div>
+        <div class="amz-cart active-cart">
+          <i class="fas fa-shopping-cart"></i>
+          <span class="cart-count" id="headerCartCount">0</span>
+          <span>Cart</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Nav -->
+  <nav class="amz-navbar">
+    <div class="amz-navbar-inner">
+      <a href="/" class="nav-link"><i class="fas fa-arrow-left"></i> Back to Shopping</a>
+      <a href="/" class="nav-link">All Products</a>
+      <a href="/" class="nav-link">Electronics</a>
+      <a href="/" class="nav-link">Grocery</a>
+      <a href="/" class="nav-link">Kitchen</a>
+    </div>
+  </nav>
+
+  <!-- Cart Main -->
+  <main class="cart-main">
+    <div class="cart-container">
+
+      <!-- Left: Cart Items -->
+      <div class="cart-left">
+        <div class="cart-header-box">
+          <h1 class="cart-title">Shopping Cart</h1>
+          <span class="cart-deselect" id="deselectAll">Deselect all items</span>
+          <span class="cart-price-header">Price</span>
+        </div>
+
+        <!-- Cart Items List -->
+        <div id="cartItemsList">
+          <!-- Rendered by JS -->
+        </div>
+
+        <!-- Empty Cart -->
+        <div id="emptyCart" class="empty-cart" style="display:none;">
+          <div class="empty-cart-inner">
+            <img src="https://m.media-amazon.com/images/G/31/cart/empty/kettle-desaturated._CB445243794_.svg"
+                 alt="Empty Cart" class="empty-img"
+                 onerror="this.style.display='none'">
+            <h2>Your ShopAI Cart is empty</h2>
+            <p>Your shopping cart is waiting. Give it a purpose!</p>
+            <a href="/" class="empty-shop-btn">
+              <i class="fas fa-shopping-bag"></i> Continue Shopping
+            </a>
+          </div>
+        </div>
+
+        <!-- Cart Subtotal (bottom) -->
+        <div class="cart-bottom-total" id="cartBottomTotal">
+          <span>Subtotal (<span id="bottomItemCount">0</span> items): </span>
+          <strong id="bottomSubtotal">₹0</strong>
+        </div>
+      </div>
+
+      <!-- Right: Order Summary -->
+      <div class="cart-right" id="cartSummary">
+        <div class="summary-box">
+          <!-- Free Delivery Banner -->
+          <div class="free-delivery-banner">
+            <i class="fas fa-check-circle"></i>
+            Your order qualifies for <strong>FREE Delivery</strong>.
+            <a href="#">Details</a>
+          </div>
+
+          <div class="summary-subtotal">
+            Subtotal (<span id="summaryItemCount">0</span> items):
+            <span class="summary-price" id="summarySubtotal">₹0</span>
+          </div>
+
+          <div class="summary-rows">
+            <div class="summary-row">
+              <span>Delivery</span>
+              <span class="free-text">FREE</span>
+            </div>
+            <div class="summary-row" id="discountRow" style="display:none;">
+              <span>Discount (Coupon)</span>
+              <span class="discount-text" id="discountAmount">-₹0</span>
+            </div>
+          </div>
+
+          <div class="summary-total">
+            <span>Order Total:</span>
+            <span class="total-price" id="summaryTotal">₹0</span>
+          </div>
+
+          <!-- EMI Note -->
+          <div class="emi-note">
+            <i class="fas fa-info-circle"></i>
+            EMI available on orders above ₹3,000
+          </div>
+
+          <button class="proceed-btn" id="proceedBtn" onclick="proceedToCheckout()">
+            Proceed to Buy (<span id="proceedCount">0</span> items)
+          </button>
+
+          <!-- Coupon Section -->
+          <div class="coupon-section">
+            <div class="coupon-header" id="couponToggle">
+              <i class="fas fa-tag"></i> Apply Coupon
+              <i class="fas fa-chevron-down coupon-arrow" id="couponArrow"></i>
+            </div>
+            <div class="coupon-body" id="couponBody" style="display:none;">
+              <div class="coupon-input-row">
+                <input type="text" id="couponInput" placeholder="Enter coupon code" />
+                <button id="applyCouponBtn" onclick="applyCoupon()">Apply</button>
+              </div>
+              <div class="coupon-hints">
+                <span onclick="fillCoupon('SAVE10')">SAVE10</span>
+                <span onclick="fillCoupon('FLAT200')">FLAT200</span>
+                <span onclick="fillCoupon('SHOPAI50')">SHOPAI50</span>
+              </div>
+              <div id="couponMsg" class="coupon-msg"></div>
+            </div>
+          </div>
+
+          <!-- Secure Message -->
+          <div class="secure-msg">
+            <i class="fas fa-lock"></i> Secure transaction
+          </div>
+        </div>
+
+        <!-- Savings Box -->
+        <div class="savings-box" id="savingsBox">
+          <i class="fas fa-piggy-bank"></i>
+          You're saving <strong id="savingsAmount">₹0</strong> on this order!
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Recently Viewed / Suggestions -->
+    <div class="cart-suggestions">
+      <h3>Customers who bought items in your cart also bought</h3>
+      <div id="suggestionsGrid" class="suggestions-grid">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="amz-footer">
+    <a href="#" class="back-to-top" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;">Back to top</a>
+    <div class="footer-cols">
+      <div><h5>Get to Know Us</h5><a href="#">About ShopAI</a><a href="#">Careers</a></div>
+      <div><h5>Connect with Us</h5><a href="#">Facebook</a><a href="#">Twitter</a></div>
+      <div><h5>Make Money with Us</h5><a href="#">Sell on ShopAI</a></div>
+      <div><h5>Let Us Help You</h5><a href="#">Your Account</a><a href="#">Help</a></div>
+    </div>
+    <div class="footer-bottom">
+      <div class="footer-logo"><i class="fas fa-shopping-bag"></i> ShopAI.in</div>
+      <p>&copy; 2024 ShopAI — AI Powered E-commerce</p>
+    </div>
+  </footer>
+
+  <script src="/public/js/cart.js"></script>
+</body>
+</html>

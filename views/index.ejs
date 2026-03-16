@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShopAI — Smart Shopping</title>
+  <link rel="stylesheet" href="/public/css/chat.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    .product-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+    }
+    .product-modal.active { display: flex; }
+
+    .product-modal-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+
+    .product-modal-content {
+      position: relative;
+      z-index: 1;
+      background: #fff;
+      border-radius: 20px;
+      width: 90%;
+      max-width: 860px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.2), 0 4px 16px rgba(0,0,0,0.08);
+      animation: modalIn .3s cubic-bezier(0.16,1,0.3,1);
+      scrollbar-width: thin;
+      scrollbar-color: #d2d2d7 transparent;
+    }
+    .product-modal-content::-webkit-scrollbar { width: 4px; }
+    .product-modal-content::-webkit-scrollbar-thumb { background: #d2d2d7; border-radius: 4px; }
+
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.96) translateY(12px); }
+      to   { opacity: 1; transform: scale(1)    translateY(0); }
+    }
+
+    .product-modal-close {
+      position: absolute;
+      top: 16px; right: 16px;
+      background: #f5f5f7;
+      border: none;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      font-size: 14px;
+      color: #6e6e73;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .15s;
+      z-index: 2;
+    }
+    .product-modal-close:hover { background: #e5e5ea; color: #1d1d1f; }
+
+    .product-modal-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+    }
+    @media (max-width: 640px) { .product-modal-body { grid-template-columns: 1fr; } }
+
+    .product-modal-image {
+      background: #f5f5f7;
+      border-radius: 20px 0 0 0;
+      overflow: hidden;
+      aspect-ratio: 1;
+    }
+    .product-modal-image img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .product-modal-info {
+      padding: 32px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .product-modal-category {
+      font-size: 11px;
+      font-weight: 600;
+      color: #aeaeb2;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .product-modal-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1d1d1f;
+      line-height: 1.3;
+      letter-spacing: -0.3px;
+    }
+
+    .product-modal-rating {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #6e6e73;
+    }
+    .product-modal-rating .amz-stars { color: #ffcc00; font-size: 14px; }
+
+    .product-modal-price {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .product-modal-current-price {
+      font-size: 26px;
+      font-weight: 700;
+      color: #1d1d1f;
+      letter-spacing: -0.5px;
+    }
+    .product-modal-mrp {
+      font-size: 14px;
+      color: #aeaeb2;
+      text-decoration: line-through;
+    }
+    .product-modal-discount {
+      font-size: 13px;
+      color: #28c840;
+      font-weight: 600;
+    }
+
+    .product-modal-description {
+      font-size: 13px;
+      color: #6e6e73;
+      line-height: 1.6;
+      border-top: 1px solid rgba(0,0,0,0.06);
+      padding-top: 12px;
+    }
+
+    .product-modal-stock {
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 8px;
+      display: inline-block;
+      width: fit-content;
+    }
+    .product-modal-stock.in-stock  { background: rgba(40,200,64,0.1);  color: #28c840; }
+    .product-modal-stock.low-stock { background: rgba(255,107,0,0.1);  color: #ff6b00; }
+    .product-modal-stock.out-of-stock { background: rgba(255,59,48,0.1); color: #ff3b30; }
+
+    .product-modal-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: auto;
+      padding-top: 6px;
+    }
+
+    .product-modal-cart-btn {
+      background: #0071e3;
+      color: white;
+      border: none;
+      padding: 12px;
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      gap: 8px;
+      transition: all .2s;
+    }
+    .product-modal-cart-btn:hover { background: #0077ed; box-shadow: 0 4px 16px rgba(0,113,227,0.3); transform: translateY(-1px); }
+    .product-modal-cart-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .product-modal-buy-btn {
+      background: #f5f5f7;
+      color: #1d1d1f;
+      border: none;
+      padding: 12px;
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .product-modal-buy-btn:hover { background: #e5e5ea; }
+
+    .product-modal-similar {
+      border-top: 1px solid rgba(0,0,0,0.06);
+      padding: 24px 28px;
+    }
+    .product-modal-similar h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1d1d1f;
+      margin-bottom: 16px;
+      letter-spacing: -0.2px;
+    }
+
+    .similar-products-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+    @media (max-width: 640px) { .similar-products-grid { grid-template-columns: repeat(2, 1fr); } }
+
+    .similar-product-card {
+      background: #f5f5f7;
+      border-radius: 12px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all .2s;
+      border: 1px solid transparent;
+    }
+    .similar-product-card:hover {
+      border-color: rgba(0,113,227,0.3);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      transform: translateY(-2px);
+    }
+    .similar-product-card img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      display: block;
+    }
+    .similar-product-info {
+      padding: 8px 10px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .similar-product-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: #1d1d1f;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .similar-product-price {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0071e3;
+    }
+    .similar-product-rating {
+      font-size: 11px;
+      color: #ffcc00;
+    }
+
+    .developer-section {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      padding: 40px 20px;
+      text-align: center;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .developer-card {
+      max-width: 400px;
+      margin: 0 auto;
+      background: rgba(255,255,255,0.05);
+      border-radius: 20px;
+      padding: 30px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .developer-avatar {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      margin: 0 auto 20px;
+      box-shadow: 0 8px 32px rgba(0,113,227,0.3);
+      overflow: hidden;
+      border: 3px solid rgba(255,255,255,0.2);
+    }
+
+    .developer-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .developer-name {
+      font-size: 24px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 5px;
+      letter-spacing: -0.5px;
+    }
+
+    .developer-role {
+      font-size: 14px;
+      color: #aeaeb2;
+      margin-bottom: 20px;
+    }
+
+    .developer-social {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .social-link {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 18px;
+      text-decoration: none;
+      transition: all 0.3s ease;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .social-link:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+
+    .social-link.github:hover { background: #333; }
+    .social-link.linkedin:hover { background: #0077b5; }
+    .social-link.twitter:hover { background: #1da1f2; }
+    .social-link.instagram:hover { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); }
+    .social-link.youtube:hover { background: #ff0000; }
+    .social-link.facebook:hover { background: #1877f2; }
+
+    .developer-tagline {
+      margin-top: 20px;
+      font-size: 13px;
+      color: #6e6e73;
+      font-style: italic;
+    }
+
+    .footer-credit {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 15px;
+      font-size: 13px;
+      color: #aeaeb2;
+    }
+
+    .footer-credit .heart {
+      color: #ff3b30;
+      animation: heartbeat 1.5s ease infinite;
+    }
+
+    @keyframes heartbeat {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+    }
+
+    .footer-credit a {
+      color: #0071e3;
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+
+    .footer-credit a:hover {
+      color: #00c6ff;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="topbar">
+    Get <strong>FREE Delivery</strong> on orders over ₹499 &nbsp;|&nbsp;
+    <a href="#">Today's Deals</a>
+  </div>
+
+  <header class="amz-header">
+    <div class="amz-header-inner">
+
+      <div class="amz-logo" onclick="window.scrollTo({top:0,behavior:'smooth'})">
+        <i class="fas fa-bag-shopping"></i>
+        <span>ShopAI</span>
+        <small>.in</small>
+      </div>
+
+      <div class="amz-location">
+        <i class="fas fa-location-dot"></i>
+        <div>
+          <span class="loc-label">Deliver to</span>
+          <span class="loc-city">India</span>
+        </div>
+      </div>
+
+      <div class="amz-search">
+        <select class="search-category" aria-label="Category">
+          <option value="all">All</option>
+          <option value="Electronics">Electronics</option>
+          <option value="Grocery">Grocery</option>
+          <option value="Games">Games</option>
+          <option value="Kitchen Appliances">Kitchen</option>
+        </select>
+        <input type="text" id="searchInput" placeholder="Search products, brands and more…" autocomplete="off">
+        <button id="searchBtn" aria-label="Search"><i class="fas fa-magnifying-glass"></i></button>
+      </div>
+
+      <div class="amz-header-right">
+        <div class="amz-nav-item">
+          <span class="nav-label">Hello, User</span>
+          <span class="nav-value">Account &amp; Lists <i class="fas fa-chevron-down" style="font-size:10px"></i></span>
+        </div>
+        <div class="amz-nav-item">
+          <span class="nav-label">Returns</span>
+          <span class="nav-value">&amp; Orders</span>
+        </div>
+        <a href="/cart" class="amz-cart">
+          <i class="fas fa-cart-shopping"></i>
+          <span class="cart-count">0</span>
+          <span>Cart</span>
+        </a>
+      </div>
+
+    </div>
+  </header>
+
+  <nav class="amz-navbar" role="navigation" aria-label="Main navigation">
+    <div class="amz-navbar-inner">
+      <button class="nav-all-btn" aria-label="All categories">
+        <i class="fas fa-bars"></i> All
+      </button>
+      <a href="#" class="nav-link active" data-category="all">All Products</a>
+      <a href="#" class="nav-link" data-category="Electronics">Electronics</a>
+      <a href="#" class="nav-link" data-category="Grocery">Grocery</a>
+      <a href="#" class="nav-link" data-category="Games">Games &amp; Toys</a>
+      <a href="#" class="nav-link" data-category="Kitchen Appliances">Kitchen</a>
+      <a href="#" class="nav-link nav-deal">Today's Deals</a>
+      <a href="#" class="nav-link">New Arrivals</a>
+      <a href="#" class="nav-link">Best Sellers</a>
+      <a href="#" class="nav-link">Customer Service</a>
+    </div>
+  </nav>
+
+  <div class="hero-banner" aria-label="Promotional banner">
+    <div class="hero-slide active">
+      <div class="hero-bg" style="background: linear-gradient(135deg, #0f0f10 0%, #1a1f2e 50%, #1d1d1f 100%)"></div>
+      <div class="hero-content">
+        <span class="hero-tag">Mega Sale</span>
+        <h1>Min. 50% OFF</h1>
+        <p>On Electronics, Kitchen &amp; More</p>
+        <button class="hero-btn" onclick="document.getElementById('productsGrid').scrollIntoView({behavior:'smooth'})">
+          Shop Now <i class="fas fa-arrow-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="filter-strip" role="search" aria-label="Filter products">
+    <div class="filter-strip-inner">
+      <div class="fs-group">
+        <label for="priceFilter"><i class="fas fa-sliders"></i> Price</label>
+        <select id="priceFilter">
+          <option value="all">All Prices</option>
+          <option value="0-500">Under ₹500</option>
+          <option value="500-1000">₹500 – ₹1,000</option>
+          <option value="1000-5000">₹1,000 – ₹5,000</option>
+          <option value="5000-10000">₹5,000 – ₹10,000</option>
+          <option value="10000-50000">₹10,000 – ₹50,000</option>
+          <option value="50000-999999">Above ₹50,000</option>
+        </select>
+      </div>
+      <div class="fs-group">
+        <label for="sortFilter"><i class="fas fa-arrow-up-wide-short"></i> Sort</label>
+        <select id="sortFilter">
+          <option value="default">Default</option>
+          <option value="price-low">Price: Low to High</option>
+          <option value="price-high">Price: High to Low</option>
+          <option value="rating">Highest Rated</option>
+          <option value="name">Name: A to Z</option>
+        </select>
+      </div>
+      <div class="fs-results">
+        Showing <strong id="totalProducts">0</strong> results
+      </div>
+      <button id="clearFilters" class="fs-clear">
+        <i class="fas fa-xmark"></i> Clear
+      </button>
+    </div>
+  </div>
+
+  <div id="loadingSpinner" class="amz-loading">
+    <div class="amz-spinner"></div>
+    <p>Loading products…</p>
+  </div>
+
+  <main class="amz-main">
+
+    <aside class="amz-sidebar" aria-label="Product filters">
+      <h4>Department</h4>
+      <ul>
+        <li><a href="#" class="sidebar-link active" data-category="all">All Departments</a></li>
+        <li><a href="#" class="sidebar-link" data-category="Electronics">Electronics</a></li>
+        <li><a href="#" class="sidebar-link" data-category="Grocery">Grocery</a></li>
+        <li><a href="#" class="sidebar-link" data-category="Games">Games &amp; Toys</a></li>
+        <li><a href="#" class="sidebar-link" data-category="Kitchen Appliances">Kitchen Appliances</a></li>
+      </ul>
+      <hr>
+      <h4>Avg. Customer Review</h4>
+      <ul class="rating-filter">
+        <li><a href="#">★★★★★ &amp; Up</a></li>
+        <li><a href="#">★★★★☆ &amp; Up</a></li>
+        <li><a href="#">★★★☆☆ &amp; Up</a></li>
+      </ul>
+      <hr>
+      <h4>Availability</h4>
+      <label class="sidebar-check">
+        <input type="checkbox" id="inStockOnly"> In Stock Only
+      </label>
+    </aside>
+
+    <section class="amz-products-section" aria-label="Product listing">
+      <div class="section-header">
+        <h2>Results</h2>
+      </div>
+
+      <div id="productsGrid" class="amz-products-grid"></div>
+
+      <div id="noProducts" class="amz-no-products" style="display:none">
+        <i class="fas fa-magnifying-glass"></i>
+        <h3>No results found</h3>
+        <p>Try different keywords or clear your filters</p>
+        <button class="amz-clear-btn">Clear Filters</button>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="developer-section">
+    <div class="developer-card">
+      <div class="developer-avatar">
+        <img src="/public/image/profile.jpg" alt="Rahul Sharma">
+      </div>
+      <h3 class="developer-name">Rahul Sharma</h3>
+      <p class="developer-role">Full Stack Developer & AI Enthusiast</p>
+      <div class="developer-social">
+        <a href="https://github.com/mylikerahul" target="_blank" rel="noopener noreferrer" class="social-link github" title="GitHub">
+          <i class="fab fa-github"></i>
+        </a>
+        <a href="https://linkedin.com/in/mylikerahul" target="_blank" rel="noopener noreferrer" class="social-link linkedin" title="LinkedIn">
+          <i class="fab fa-linkedin-in"></i>
+        </a>
+        <a href="https://twitter.com/mylikerahul" target="_blank" rel="noopener noreferrer" class="social-link twitter" title="Twitter">
+          <i class="fab fa-twitter"></i>
+        </a>
+        <a href="https://instagram.com/mylikerahul" target="_blank" rel="noopener noreferrer" class="social-link instagram" title="Instagram">
+          <i class="fab fa-instagram"></i>
+        </a>
+        <a href="https://youtube.com/@mylikerahul" target="_blank" rel="noopener noreferrer" class="social-link youtube" title="YouTube">
+          <i class="fab fa-youtube"></i>
+        </a>
+        <a href="https://facebook.com/mylikerahul" target="_blank" rel="noopener noreferrer" class="social-link facebook" title="Facebook">
+          <i class="fab fa-facebook-f"></i>
+        </a>
+      </div>
+      <p class="developer-tagline">"Building the future, one line of code at a time"</p>
+    </div>
+  </div>
+
+  <footer class="amz-footer">
+    <a href="#" class="back-to-top">Back to top</a>
+    <div class="footer-cols">
+      <div>
+        <h5>Get to Know Us</h5>
+        <a href="#">About ShopAI</a>
+        <a href="#">Careers</a>
+        <a href="#">Press Releases</a>
+        <a href="#">Blog</a>
+      </div>
+      <div>
+        <h5>Connect with Us</h5>
+        <a href="https://facebook.com/mylikerahul" target="_blank"><i class="fab fa-facebook" style="width:16px"></i> Facebook</a>
+        <a href="https://twitter.com/mylikerahul" target="_blank"><i class="fab fa-twitter" style="width:16px"></i> Twitter</a>
+        <a href="https://instagram.com/mylikerahul" target="_blank"><i class="fab fa-instagram" style="width:16px"></i> Instagram</a>
+      </div>
+      <div>
+        <h5>Make Money with Us</h5>
+        <a href="#">Sell on ShopAI</a>
+        <a href="#">Advertise Your Products</a>
+        <a href="#">Become an Affiliate</a>
+      </div>
+      <div>
+        <h5>Let Us Help You</h5>
+        <a href="#">Your Account</a>
+        <a href="#">Returns &amp; Replacements</a>
+        <a href="#">Help Centre</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div class="footer-logo"><i class="fas fa-bag-shopping"></i> ShopAI.in</div>
+      <p>&copy; 2024 ShopAI — AI Powered E-commerce</p>
+      <div class="footer-credit">
+        Made with <span class="heart"><i class="fas fa-heart"></i></span> by 
+        <a href="https://github.com/mylikerahul" target="_blank">Rahul Sharma</a>
+      </div>
+    </div>
+  </footer>
+
+  <div class="chat-widget" id="chatWidget" role="dialog" aria-label="AI Shopping Assistant">
+
+    <div class="chat-header" id="chatHeader">
+      <div class="chat-title">
+        <div class="header-bot-icon">
+          <img src="/public/image/Chatbot.jpg" alt="AI Bot">
+        </div>
+        <div class="chat-title-text">
+          <span>AI Shopping Assistant</span>
+          <span class="chat-online">Online</span>
+        </div>
+      </div>
+      <button class="minimize-btn" id="minimizeBtn" aria-label="Minimise chat">
+        <i class="fas fa-minus"></i>
+      </button>
+    </div>
+
+    <div class="chat-body" id="chatBody">
+      <div class="chat-messages" id="chatMessages">
+
+        <div class="message bot-message">
+          <div class="message-avatar">
+            <img src="/public/image/Chatbot.jpg" alt="Bot">
+          </div>
+          <div class="message-content">
+            <p>Namaste! I'm your AI shopping assistant. Try asking:</p>
+            <ul>
+              <li>"Show laptops under ₹50,000"</li>
+              <li>"Best rated headphones"</li>
+              <li>"Kitchen appliances on budget"</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="chat-input-container">
+        <input
+          type="text"
+          id="chatInput"
+          placeholder="Ask me anything…"
+          autocomplete="off"
+          aria-label="Chat message"
+        >
+        <button id="sendBtn" aria-label="Send message">
+          <i class="fas fa-paper-plane"></i>
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <button class="chat-toggle-btn" id="chatToggleBtn" aria-label="Open AI assistant">
+    <img class="bot-icon" src="/public/image/Chatbot.jpg" alt="AI Bot">
+  </button>
+
+  <script src="/public/js/chat.js"></script>
+</body>
+</html>
