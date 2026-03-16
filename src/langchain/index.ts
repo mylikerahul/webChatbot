@@ -1,6 +1,6 @@
 import { detectIntent } from '../agents/intentAgent.js';
 import { ProductTools } from '../tools/productTools.js';
-import { LangChainOrchestrator } from './chains.js'; // ✅ FIX: agents/ se nahi, ./chains.js se import
+import { LangChainOrchestrator } from './chains.js';
 import { QueryIntent, Product } from '../types/index.js';
 
 const MAX_SEARCH_RESULTS = 10;
@@ -131,12 +131,10 @@ class ProductDetailHandler {
   }
 
   private resolveProductName(intent: QueryIntent): string {
-    // ✅ FIX: productName pehle, phir saare keywords join, phir pehla keyword
     const fromProductName = intent.productName?.trim();
     if (fromProductName) return fromProductName;
 
     const keywords = intent.keywords ?? [];
-    // Saare meaningful keywords join karo (single token brands ke liye)
     const joined = keywords.join(' ').trim();
     if (joined.length > 0) return joined;
 
@@ -165,7 +163,6 @@ class ProductSearchHandler {
     }
 
     if (products.length === 0) {
-      // ✅ FIX: category se top rated try karo before giving up
       if (intent.category) {
         try {
           products = await this.productTools.getTopRatedProducts(intent.category, 5);
@@ -245,7 +242,7 @@ class LangChainOrchestratorService {
 
   constructor() {
     const productTools = new ProductTools();
-    const orchestrator = new LangChainOrchestrator(); // ✅ Ab chains.js se aayega
+    const orchestrator = new LangChainOrchestrator();
 
     this.router = new IntentRouter(
       new ProductDetailHandler(productTools, orchestrator),
@@ -260,7 +257,9 @@ class LangChainOrchestratorService {
     rawSessionId: unknown
   ): Promise<ChatResult> {
     const message = MessageSanitizer.sanitize(rawMessage);
-    void rawSessionId && SessionSanitizer.sanitize(rawSessionId);
+    const sessionId = SessionSanitizer.sanitize(rawSessionId);
+    
+    void sessionId;
 
     if (!message) {
       return ChatResultBuilder.empty('Kuch toh poocho! Message empty hai.', 'empty_message');

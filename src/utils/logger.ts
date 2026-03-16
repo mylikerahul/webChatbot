@@ -1,4 +1,4 @@
-import pino from 'pino';
+import pino, { TransportSingleOptions, TransportMultiOptions } from 'pino';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -7,39 +7,45 @@ const __dirname = path.dirname(__filename);
 
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
-// Multiple transports - console + file
-const transports = isDevelopment
-  ? {
+// Development transport config
+const devTransport: TransportSingleOptions = {
+  target: 'pino-pretty',
+  options: {
+    colorize: true,
+    translateTime: 'SYS:HH:MM:ss.l',
+    ignore: 'pid,hostname',
+    singleLine: false,
+    messageFormat: '{levelLabel} - {msg}',
+  },
+};
+
+// Production transport config
+const prodTransport: TransportMultiOptions = {
+  targets: [
+    {
       target: 'pino-pretty',
+      level: 'info',
       options: {
         colorize: true,
-        translateTime: 'SYS:HH:MM:ss.l',
+        translateTime: 'SYS:yyyy-mm-dd HH:MM:ss',
         ignore: 'pid,hostname',
         singleLine: false,
-        messageFormat: '{levelLabel} - {msg}',
+        messageFormat: '{msg}',
       },
-    }
-  : {
-      targets: [
-        {
-          target: 'pino-pretty',
-          level: 'info',
-          options: {
-            colorize: true,
-            translateTime: 'SYS:yyyy-mm-dd HH:MM:ss',
-            ignore: 'pid,hostname',
-          },
-        },
-        {
-          target: 'pino/file',
-          level: 'error',
-          options: {
-            destination: path.join(__dirname, '../../logs/error.log'),
-            mkdir: true,
-          },
-        },
-      ],
-    };
+    },
+    {
+      target: 'pino/file',
+      level: 'error',
+      options: {
+        destination: path.join(__dirname, '../../logs/error.log'),
+        mkdir: true,
+      },
+    },
+  ],
+};
+
+// Select transport based on environment
+const transport = isDevelopment ? devTransport : prodTransport;
 
 export const logger = pino(
   {
@@ -47,7 +53,7 @@ export const logger = pino(
     timestamp: pino.stdTimeFunctions.isoTime,
     formatters: {
       level: (label) => ({ level: label.toUpperCase() }),
-      bindings: (bindings) => ({
+      bindings: () => ({
         node_version: process.version,
       }),
     },
@@ -57,7 +63,7 @@ export const logger = pino(
       res: pino.stdSerializers.res,
     },
   },
-  pino.transport(transports)
+  pino.transport(transport)
 );
 
 // Enhanced logging with context

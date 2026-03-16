@@ -2,314 +2,500 @@ import { BaseLLM, BaseLLMParams } from '@langchain/core/language_models/llms';
 import { LLMResult, Generation } from '@langchain/core/outputs';
 import { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const DEFAULT_BASE_URL   = process.env.LOCAL_LLM_BASE_URL  ?? 'http://localhost:11434';
-const DEFAULT_MODEL      = process.env.LOCAL_LLM_MODEL     ?? 'llama3';
-const DEFAULT_TIMEOUT    = parseInt(process.env.LOCAL_LLM_TIMEOUT_MS ?? '8000', 10); // ✅ 8s (was 30s — too long)
-const DEFAULT_TEMP       = 0.7;
-const DEFAULT_MAX_TOKENS = 512; // ✅ Reduced (was 1024 — faster response)
-const MAX_RETRIES        = 1;   // ✅ Only 1 retry (was 2 — too slow on failure)
-const RETRY_DELAY_BASE   = 300;
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+const DEFAULT_BASE_URL = process.env.LOCAL_LLM_BASE_URL ?? 'http://localhost:11434';
+const DEFAULT_MODEL = process.env.LOCAL_LLM_MODEL ?? 'llama3';
+const DEFAULT_TIMEOUT = parseInt(process.env.LOCAL_LLM_TIMEOUT_MS ?? '8000', 10);
+const DEFAULT_TEMP = 0.7;
+const DEFAULT_MAX_TOKENS = 512;
+const MAX_RETRIES = 1;
+const RETRY_DELAY_BASE = 300;
 
 export interface CustomLocalLLMParams extends BaseLLMParams {
-  baseUrl?:     string;
-  model?:       string;
+  baseUrl?: string;
+  model?: string;
   temperature?: number;
-  maxTokens?:   number;
-  timeoutMs?:   number;
-  maxRetries?:  number;
+  maxTokens?: number;
+  timeoutMs?: number;
+  maxRetries?: number;
 }
 
 interface OllamaRequestBody {
-  model:   string;
-  prompt:  string;
-  stream:  false;
+  model: string;
+  prompt: string;
+  stream: false;
   options: { temperature: number; num_predict: number };
 }
 
 interface OllamaSuccessResponse {
-  response:        string;
-  done:            boolean;
-  model?:          string;
+  response: string;
+  done: boolean;
+  model?: string;
   total_duration?: number;
 }
 
-interface OllamaErrorResponse { error: string }
+interface OllamaErrorResponse {
+  error: string;
+}
+
 type OllamaResponse = OllamaSuccessResponse | OllamaErrorResponse;
 
-function isOllamaError(b: OllamaResponse): b is OllamaErrorResponse {
-  return typeof (b as OllamaErrorResponse).error === 'string';
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(res => setTimeout(res, ms));
-}
-
-function isTransientError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  return (
-    msg.includes('timeout')     ||
-    msg.includes('econnrefused') ||
-    msg.includes('econnreset')  ||
-    msg.includes('network')     ||
-    msg.includes('socket')      ||
-    msg.includes('fetch failed')
-  );
-}
-
-// ─── Custom Error ─────────────────────────────────────────────────────────────
-
 export class LocalLLMError extends Error {
+  public readonly code: 'TIMEOUT' | 'SERVER_ERROR' | 'INVALID_RESPONSE' | 'MODEL_ERROR' | 'NETWORK_ERROR';
+  public readonly statusCode?: number;
+
   constructor(
     message: string,
-    public readonly code: 'TIMEOUT' | 'SERVER_ERROR' | 'INVALID_RESPONSE' | 'MODEL_ERROR' | 'NETWORK_ERROR',
-    public readonly statusCode?: number
+    code: 'TIMEOUT' | 'SERVER_ERROR' | 'INVALID_RESPONSE' | 'MODEL_ERROR' | 'NETWORK_ERROR',
+    statusCode?: number
   ) {
     super(message);
     this.name = 'LocalLLMError';
+    this.code = code;
+    this.statusCode = statusCode;
   }
 }
 
-// ─── Main Class ───────────────────────────────────────────────────────────────
+class ResponseMatcher {
+  private static readonly patterns: Array<{ regex: RegExp; response: string }> = [
+    { regex: /^(hi|hello|hey|greetings|good\s*(morning|afternoon|evening))/i, response: 'Hello! How can I assist you today?' },
+    { regex: /^(bye|goodbye|see\s*you|take\s*care)/i, response: 'Goodbye! Have a great day!' },
+    { regex: /^(thanks|thank\s*you|thx)/i, response: 'You are welcome! Let me know if you need anything else.' },
+    { regex: /(help|support|assist|guide)/i, response: 'I am here to help. Please describe what you need assistance with.' },
+    { regex: /(who\s*are\s*you|what\s*are\s*you)/i, response: 'I am an AI assistant designed to help answer your questions.' },
+    { regex: /(how\s*are\s*you|how\s*do\s*you\s*do)/i, response: 'I am functioning well. Thank you for asking. How can I help you?' },
+    { regex: /(what\s*can\s*you\s*do|your\s*capabilities)/i, response: 'I can answer questions, provide information, and assist with various tasks.' },
+  ];
+
+  static match(query: string): string | null {
+    const normalized = query.trim().toLowerCase();
+    for (const pattern of this.patterns) {
+      if (pattern.regex.test(normalized)) {
+        return pattern.response;
+      }
+    }
+    return null;
+  }
+
+  static getDefaultResponse(query: string): string {
+    const truncated = query.length > 50 ? query.slice(0, 50) + '...' : query;
+    return `I understand your query regarding "${truncated}". Could you please provide more specific details?`;
+  }
+}
+
+class HttpClient {
+  private readonly baseUrl: string;
+  private readonly timeoutMs: number;
+
+  constructor(baseUrl: string, timeoutMs: number) {
+    this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.timeoutMs = timeoutMs;
+  }
+
+  async post<T>(endpoint: string, body: object): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timer);
+
+      if (!response.ok) {
+        throw new LocalLLMError(`HTTP ${response.status}`, 'SERVER_ERROR', response.status);
+      }
+
+      return await response.json() as T;
+    } catch (error: unknown) {
+      clearTimeout(timer);
+      
+      if (error instanceof LocalLLMError) {
+        throw error;
+      }
+
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      
+      if (message.includes('abort')) {
+        throw new LocalLLMError(`Request timed out after ${this.timeoutMs}ms`, 'TIMEOUT');
+      }
+
+      throw new LocalLLMError(`Network error: ${message}`, 'NETWORK_ERROR');
+    }
+  }
+
+  async get<T>(endpoint: string, timeoutMs?: number): Promise<T> {
+    const controller = new AbortController();
+    const timeout = timeoutMs ?? this.timeoutMs;
+    const timer = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+
+      clearTimeout(timer);
+
+      if (!response.ok) {
+        throw new LocalLLMError(`HTTP ${response.status}`, 'SERVER_ERROR', response.status);
+      }
+
+      return await response.json() as T;
+    } catch (error: unknown) {
+      clearTimeout(timer);
+      
+      if (error instanceof LocalLLMError) {
+        throw error;
+      }
+
+      throw new LocalLLMError('Network error', 'NETWORK_ERROR');
+    }
+  }
+
+  async ping(endpoint: string, timeoutMs: number): Promise<boolean> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      return response.ok;
+    } catch {
+      clearTimeout(timer);
+      return false;
+    }
+  }
+}
+
+class ServerAvailabilityCache {
+  private static instance: ServerAvailabilityCache;
+  private isAvailable: boolean | null = null;
+  private lastCheckedAt: number = 0;
+  private readonly cacheTtlMs: number = 60000;
+
+  private constructor() {}
+
+  static getInstance(): ServerAvailabilityCache {
+    if (!ServerAvailabilityCache.instance) {
+      ServerAvailabilityCache.instance = new ServerAvailabilityCache();
+    }
+    return ServerAvailabilityCache.instance;
+  }
+
+  isCacheValid(): boolean {
+    return (Date.now() - this.lastCheckedAt) < this.cacheTtlMs && this.isAvailable !== null;
+  }
+
+  get(): boolean | null {
+    return this.isCacheValid() ? this.isAvailable : null;
+  }
+
+  set(value: boolean): void {
+    this.isAvailable = value;
+    this.lastCheckedAt = Date.now();
+  }
+
+  invalidate(): void {
+    this.isAvailable = null;
+    this.lastCheckedAt = 0;
+  }
+
+  markUnavailable(): void {
+    this.isAvailable = false;
+    this.lastCheckedAt = Date.now();
+  }
+}
+
+class RetryHandler {
+  private readonly maxRetries: number;
+  private readonly baseDelay: number;
+
+  constructor(maxRetries: number, baseDelay: number) {
+    this.maxRetries = maxRetries;
+    this.baseDelay = baseDelay;
+  }
+
+  async execute<T>(operation: () => Promise<T>, shouldRetry: (error: unknown) => boolean): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        
+        if (shouldRetry(error) && attempt < this.maxRetries) {
+          const delay = this.baseDelay * Math.pow(2, attempt);
+          await this.sleep(delay);
+        } else {
+          break;
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+}
+
+class PromptValidator {
+  private readonly maxLength: number;
+
+  constructor(maxLength: number = 4000) {
+    this.maxLength = maxLength;
+  }
+
+  validate(prompt: string): string {
+    if (typeof prompt !== 'string') {
+      throw new TypeError('Prompt must be a string');
+    }
+
+    const trimmed = prompt.trim();
+
+    if (!trimmed) {
+      throw new Error('Prompt cannot be empty');
+    }
+
+    if (trimmed.length > this.maxLength) {
+      return trimmed.slice(0, this.maxLength);
+    }
+
+    return trimmed;
+  }
+}
+
+class ConfigValidator {
+  static validate(config: {
+    baseUrl: string;
+    model: string;
+    temperature: number;
+    maxTokens: number;
+    timeoutMs: number;
+  }): void {
+    if (!config.baseUrl.startsWith('http')) {
+      throw new Error(`Invalid baseUrl: "${config.baseUrl}"`);
+    }
+
+    if (!config.model.trim()) {
+      throw new Error('Model name cannot be empty');
+    }
+
+    if (config.temperature < 0 || config.temperature > 2) {
+      throw new RangeError('Temperature must be between 0 and 2');
+    }
+
+    if (config.maxTokens < 1 || config.maxTokens > 32768) {
+      throw new RangeError('MaxTokens must be between 1 and 32768');
+    }
+
+    if (config.timeoutMs < 1000) {
+      throw new RangeError('TimeoutMs must be at least 1000ms');
+    }
+  }
+}
 
 export class CustomLocalLLM extends BaseLLM {
-  baseUrl:     string;
-  model:       string;
-  temperature: number;
-  maxTokens:   number;
-  timeoutMs:   number;
-  maxRetries:  number;
+  private readonly _baseUrl: string;
+  private readonly _model: string;
+  private readonly _temperature: number;
+  private readonly _maxTokens: number;
+  private readonly _timeoutMs: number;
+  private readonly _maxRetries: number;
 
-  // ✅ Static cache — checked once per process, not per request
-  private static _serverAvailable: boolean | null = null;
-  private static _lastCheckedAt: number = 0;
-  private static readonly CACHE_TTL_MS = 60_000; // re-check every 60s
+  private readonly httpClient: HttpClient;
+  private readonly retryHandler: RetryHandler;
+  private readonly promptValidator: PromptValidator;
+  private readonly availabilityCache: ServerAvailabilityCache;
 
   constructor(params: CustomLocalLLMParams = {}) {
     super(params);
-    this.baseUrl     = (params.baseUrl    ?? DEFAULT_BASE_URL).replace(/\/$/, '');
-    this.model       = params.model       ?? DEFAULT_MODEL;
-    this.temperature = params.temperature ?? DEFAULT_TEMP;
-    this.maxTokens   = params.maxTokens   ?? DEFAULT_MAX_TOKENS;
-    this.timeoutMs   = params.timeoutMs   ?? DEFAULT_TIMEOUT;
-    this.maxRetries  = params.maxRetries  ?? MAX_RETRIES;
-    this._validateParams();
+
+    this._baseUrl = (params.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+    this._model = params.model ?? DEFAULT_MODEL;
+    this._temperature = params.temperature ?? DEFAULT_TEMP;
+    this._maxTokens = params.maxTokens ?? DEFAULT_MAX_TOKENS;
+    this._timeoutMs = params.timeoutMs ?? DEFAULT_TIMEOUT;
+    this._maxRetries = params.maxRetries ?? MAX_RETRIES;
+
+    ConfigValidator.validate({
+      baseUrl: this._baseUrl,
+      model: this._model,
+      temperature: this._temperature,
+      maxTokens: this._maxTokens,
+      timeoutMs: this._timeoutMs,
+    });
+
+    this.httpClient = new HttpClient(this._baseUrl, this._timeoutMs);
+    this.retryHandler = new RetryHandler(this._maxRetries, RETRY_DELAY_BASE);
+    this.promptValidator = new PromptValidator();
+    this.availabilityCache = ServerAvailabilityCache.getInstance();
   }
 
-  _llmType(): string { return 'custom_local_llm'; }
+  get baseUrl(): string { return this._baseUrl; }
+  get model(): string { return this._model; }
+  get temperature(): number { return this._temperature; }
+  get maxTokens(): number { return this._maxTokens; }
+  get timeoutMs(): number { return this._timeoutMs; }
+  get maxRetries(): number { return this._maxRetries; }
 
-  // ─── Core Inference ────────────────────────────────────────────────────────
+  _llmType(): string {
+    return 'custom_local_llm';
+  }
 
   async _generate(
     prompts: string[],
     _options: this['ParsedCallOptions'],
     _runManager?: CallbackManagerForLLMRun
   ): Promise<LLMResult> {
-    // ✅ Fast-fail if server is known to be down
-    const available = await this._checkServerAvailable();
-    if (!available) {
-      throw new LocalLLMError(
-        'Ollama server is not available. Using rule-based fallback.',
-        'NETWORK_ERROR'
-      );
+    const isAvailable = await this.checkServerAvailable();
+
+    if (!isAvailable) {
+      throw new LocalLLMError('Ollama server is not available', 'NETWORK_ERROR');
     }
 
     const generations = await Promise.all(
-      prompts.map(p => this._generateSingle(p))
+      prompts.map(prompt => this.generateSingle(prompt))
     );
+
     return { generations };
   }
 
-  private async _generateSingle(prompt: string): Promise<Generation[]> {
-    const sanitized = this._sanitizePrompt(prompt);
-    const text = await this._callWithRetry(sanitized);
+  private async generateSingle(prompt: string): Promise<Generation[]> {
+    const sanitized = this.promptValidator.validate(prompt);
+    const text = await this.callWithRetry(sanitized);
     return [{ text }];
   }
 
-  // ─── Server Availability Check (cached) ────────────────────────────────────
-
-  private async _checkServerAvailable(): Promise<boolean> {
-    const now = Date.now();
-    const cacheValid = (now - CustomLocalLLM._lastCheckedAt) < CustomLocalLLM.CACHE_TTL_MS;
-
-    if (cacheValid && CustomLocalLLM._serverAvailable !== null) {
-      return CustomLocalLLM._serverAvailable;
+  private async checkServerAvailable(): Promise<boolean> {
+    const cached = this.availabilityCache.get();
+    
+    if (cached !== null) {
+      return cached;
     }
 
+    const isAvailable = await this.httpClient.ping('/api/tags', 2000);
+    this.availabilityCache.set(isAvailable);
+
+    return isAvailable;
+  }
+
+  private async callWithRetry(prompt: string): Promise<string> {
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2000); // 2s ping timeout
-      const res = await fetch(`${this.baseUrl}/api/tags`, { signal: controller.signal });
-      clearTimeout(timer);
-      CustomLocalLLM._serverAvailable = res.ok;
-    } catch {
-      CustomLocalLLM._serverAvailable = false;
-    }
-
-    CustomLocalLLM._lastCheckedAt = now;
-
-    if (!CustomLocalLLM._serverAvailable) {
-      console.warn('[CustomLocalLLM] ⚠️  Ollama server not reachable at', this.baseUrl);
-      console.warn('[CustomLocalLLM] → Rule-based responses will be used instead.');
-      console.warn('[CustomLocalLLM] → To enable AI responses: install Ollama + run `ollama pull llama3`');
-    } else {
-      console.info('[CustomLocalLLM] ✅ Ollama server connected. Model:', this.model);
-    }
-
-    return CustomLocalLLM._serverAvailable;
-  }
-
-  // ✅ Public method — chains.ts use karta hai
-  static async isAvailable(baseUrl?: string): Promise<boolean> {
-    const url = (baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
-    try {
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(`${url}/api/tags`, { signal: controller.signal });
-      return res.ok;
-    } catch {
-      return false;
+      return await this.retryHandler.execute(
+        () => this.callOllama(prompt),
+        (error) => this.isTransientError(error)
+      );
+    } catch (error) {
+      this.availabilityCache.markUnavailable();
+      throw error;
     }
   }
 
-  // ✅ Reset cache — useful for testing
-  static resetAvailabilityCache(): void {
-    CustomLocalLLM._serverAvailable = null;
-    CustomLocalLLM._lastCheckedAt = 0;
-  }
-
-  // ─── HTTP Call with Retry ──────────────────────────────────────────────────
-
-  private async _callWithRetry(prompt: string): Promise<string> {
-    let lastError: unknown;
-
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      try {
-        return await this._callOllama(prompt);
-      } catch (err) {
-        lastError = err;
-        const shouldRetry = isTransientError(err) && attempt < this.maxRetries;
-        if (shouldRetry) {
-          const delay = RETRY_DELAY_BASE * Math.pow(2, attempt);
-          console.warn(`[CustomLocalLLM] Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
-          await sleep(delay);
-        } else {
-          // ✅ Mark server unavailable on failure so next call fast-fails
-          CustomLocalLLM._serverAvailable = false;
-          CustomLocalLLM._lastCheckedAt = Date.now();
-          break;
-        }
-      }
-    }
-
-    throw lastError instanceof LocalLLMError
-      ? lastError
-      : new LocalLLMError(
-          `LLM call failed: ${(lastError as Error)?.message ?? 'Unknown'}`,
-          'NETWORK_ERROR'
-        );
-  }
-
-  // ─── Raw Ollama HTTP Call ──────────────────────────────────────────────────
-
-  private async _callOllama(prompt: string): Promise<string> {
-    const url = `${this.baseUrl}/api/generate`;
-
+  private async callOllama(prompt: string): Promise<string> {
     const body: OllamaRequestBody = {
-      model: this.model,
+      model: this._model,
       prompt,
       stream: false,
-      options: { temperature: this.temperature, num_predict: this.maxTokens },
+      options: {
+        temperature: this._temperature,
+        num_predict: this._maxTokens,
+      },
     };
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const response = await this.httpClient.post<OllamaResponse>('/api/generate', body);
 
-    let rawResponse: Response;
-    try {
-      rawResponse = await fetch(url, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
-        signal:  controller.signal,
-      });
-    } catch (err: unknown) {
-      clearTimeout(timer);
-      const msg = (err as Error)?.message ?? '';
-      if (msg.includes('abort') || msg.includes('user aborted')) {
-        throw new LocalLLMError(`Request timed out after ${this.timeoutMs}ms`, 'TIMEOUT');
-      }
-      throw new LocalLLMError(`Network error: ${msg}`, 'NETWORK_ERROR');
-    } finally {
-      clearTimeout(timer);
+    if (this.isErrorResponse(response)) {
+      throw new LocalLLMError(response.error, 'MODEL_ERROR');
     }
 
-    let parsed: OllamaResponse;
-    try {
-      parsed = (await rawResponse.json()) as OllamaResponse;
-    } catch {
-      throw new LocalLLMError(
-        `Invalid JSON from server (status ${rawResponse.status})`,
-        'INVALID_RESPONSE',
-        rawResponse.status
-      );
-    }
+    const text = response.response?.trim() ?? '';
 
-    if (!rawResponse.ok) {
-      const errMsg = isOllamaError(parsed) ? parsed.error : `HTTP ${rawResponse.status}`;
-      throw new LocalLLMError(errMsg, 'SERVER_ERROR', rawResponse.status);
+    if (!text) {
+      throw new LocalLLMError('Empty response from model', 'INVALID_RESPONSE');
     }
-
-    if (isOllamaError(parsed)) {
-      throw new LocalLLMError(parsed.error, 'MODEL_ERROR');
-    }
-
-    const text = parsed.response?.trim() ?? '';
-    if (!text) throw new LocalLLMError('Empty response from model', 'INVALID_RESPONSE');
 
     return text;
   }
 
-  // ─── Validation ────────────────────────────────────────────────────────────
-
-  private _validateParams(): void {
-    if (!this.baseUrl.startsWith('http'))
-      throw new Error(`[CustomLocalLLM] Invalid baseUrl: "${this.baseUrl}"`);
-    if (!this.model.trim())
-      throw new Error('[CustomLocalLLM] model name cannot be empty');
-    if (this.temperature < 0 || this.temperature > 2)
-      throw new RangeError('[CustomLocalLLM] temperature must be 0–2');
-    if (this.maxTokens < 1 || this.maxTokens > 32768)
-      throw new RangeError('[CustomLocalLLM] maxTokens must be 1–32768');
-    if (this.timeoutMs < 1000)
-      throw new RangeError('[CustomLocalLLM] timeoutMs must be >= 1000ms');
+  private isErrorResponse(response: OllamaResponse): response is OllamaErrorResponse {
+    return typeof (response as OllamaErrorResponse).error === 'string';
   }
 
-  private _sanitizePrompt(prompt: string): string {
-    if (typeof prompt !== 'string') throw new TypeError('[CustomLocalLLM] prompt must be a string');
-    const trimmed = prompt.trim();
-    if (!trimmed) throw new Error('[CustomLocalLLM] prompt cannot be empty');
-    const MAX_CHARS = 4000; // ✅ Reduced from 8000 — faster LLM response
-    if (trimmed.length > MAX_CHARS) {
-      console.warn(`[CustomLocalLLM] Prompt truncated: ${trimmed.length} → ${MAX_CHARS} chars`);
-      return trimmed.slice(0, MAX_CHARS);
+  private isTransientError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
     }
-    return trimmed;
-  }
 
-  // ─── Health Check ──────────────────────────────────────────────────────────
+    const message = error.message.toLowerCase();
+    const transientPatterns = ['timeout', 'econnrefused', 'econnreset', 'network', 'socket', 'fetch failed'];
+
+    return transientPatterns.some(pattern => message.includes(pattern));
+  }
 
   async healthCheck(): Promise<{ ok: boolean; model: string; error?: string }> {
     try {
-      const res = await fetch(`${this.baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
-      if (!res.ok) return { ok: false, model: this.model, error: `HTTP ${res.status}` };
-      return { ok: true, model: this.model };
-    } catch (err) {
-      return { ok: false, model: this.model, error: (err as Error)?.message ?? 'Unknown' };
+      const isAvailable = await this.httpClient.ping('/api/tags', 5000);
+      return { ok: isAvailable, model: this._model };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return { ok: false, model: this._model, error: message };
     }
   }
+
+  static async isAvailable(baseUrl?: string): Promise<boolean> {
+    const url = (baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+    const client = new HttpClient(url, 2000);
+    return client.ping('/api/tags', 2000);
+  }
+
+  static resetAvailabilityCache(): void {
+    ServerAvailabilityCache.getInstance().invalidate();
+  }
 }
+
+export async function handleCommonQuery(query: string): Promise<string> {
+  const normalizedQuery = query.trim();
+
+  if (!normalizedQuery) {
+    return 'Please provide a valid query.';
+  }
+
+  const matchedResponse = ResponseMatcher.match(normalizedQuery);
+
+  if (matchedResponse) {
+    return matchedResponse;
+  }
+
+  try {
+    const isServerAvailable = await CustomLocalLLM.isAvailable();
+
+    if (!isServerAvailable) {
+      return ResponseMatcher.getDefaultResponse(normalizedQuery);
+    }
+
+    const llm = new CustomLocalLLM({
+      temperature: 0.3,
+      maxTokens: 256,
+      timeoutMs: 5000,
+    });
+
+    const result = await llm._generate([normalizedQuery], {});
+    const generatedText = result.generations[0]?.[0]?.text;
+
+    return generatedText ?? ResponseMatcher.getDefaultResponse(normalizedQuery);
+  } catch {
+    return ResponseMatcher.getDefaultResponse(normalizedQuery);
+  }
+}
+
+export default CustomLocalLLM;

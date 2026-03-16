@@ -18,23 +18,20 @@ export async function runAgenticWorkflow(query: string, sessionId: string): Prom
 
   ChatMemory.addMessage(sessionId, 'user', query);
 
-  // ─── STEP 1: GREETING & COMMON QUERIES (HIGHEST PRIORITY) ───
-  const commonResponse = handleCommonQuery(query);
-  if (commonResponse) {
+  const commonResponse = await handleCommonQuery(query);
+  if (commonResponse && isValidCommonResponse(commonResponse, query)) {
     state.response = commonResponse;
     state.isCompleted = true;
     return finalizeWorkflow(state);
   }
 
-  // ─── STEP 2: DETECT USER INTENT ───
   state.intent = await detectIntent(query);
 
-  // ─── STEP 3: HANDLE GREETING ───
   if (state.intent.type === 'greeting') {
     const greetings = [
-      'Namaste! 🙏 Main aapki shopping assistant hoon. Aap kya dhundh rahe hain?',
-      'Hello! 👋 Kya main aapki madad kar sakti hoon?',
-      'Hi there! 😊 Aaj kya chahiye aapko?',
+      'Namaste! Main aapki shopping assistant hoon. Aap kya dhundh rahe hain?',
+      'Hello! Kya main aapki madad kar sakti hoon?',
+      'Hi there! Aaj kya chahiye aapko?',
       'Namaskar! Main yahan hoon aapki help ke liye. Batao kya chahiye?',
     ];
     state.response = greetings[Math.floor(Math.random() * greetings.length)];
@@ -42,11 +39,7 @@ export async function runAgenticWorkflow(query: string, sessionId: string): Prom
     return finalizeWorkflow(state);
   }
 
-  // ─── STEP 4: PRODUCT DETAIL REQUEST ───
   if (state.intent.type === 'product_detail') {
-
-    // ✅ FIX: Pehle intentAgent ka productName use karo,
-    //         phir saare keywords join karo, last resort full query
     const productName =
       state.intent.productName ||
       (state.intent.keywords && state.intent.keywords.length > 0
@@ -62,13 +55,12 @@ export async function runAgenticWorkflow(query: string, sessionId: string): Prom
       const detailResponse = await generateProductDetailResponse(product, query);
 
       if (similarProducts.length > 0) {
-        state.response = detailResponse + `\n\n**Isse milte julte products:**\n`;
+        state.response = detailResponse + '\n\n**Isse milte julte products:**\n';
         state.products = [product, ...similarProducts];
       } else {
         state.response = detailResponse;
       }
     } else {
-      // ✅ FIX: Original query se bhi ek baar try karo before giving up
       const fallbackProduct = await getProductByName(query);
       if (fallbackProduct) {
         state.products = [fallbackProduct];
@@ -82,7 +74,6 @@ export async function runAgenticWorkflow(query: string, sessionId: string): Prom
     return finalizeWorkflow(state);
   }
 
-  // ─── STEP 5: GENERIC RECOMMENDATION HANDLING ───
   const isGenericQuery =
     /kuch\s+(accha|acha|sahi)|koi\s+bhi|recommend|suggest|dikhao\s*$/i.test(query.toLowerCase()) &&
     !state.intent.category &&
@@ -105,24 +96,21 @@ export async function runAgenticWorkflow(query: string, sessionId: string): Prom
     }
   }
 
-  // ─── STEP 6: CART OPERATIONS ───
   if (/add to cart|cart me|cart mein|daal do|dal do/i.test(query.toLowerCase())) {
     if (state.products.length > 0) {
       const product = state.products[0];
       state.response = CartTools.addToCart(sessionId, product);
       state.actionTaken = 'add_to_cart';
     } else {
-      state.response = `Pehle koi product search karein, phir main cart me add kar dunga!`;
+      state.response = 'Pehle koi product search karein, phir main cart me add kar dunga!';
     }
 
     state.isCompleted = true;
     return finalizeWorkflow(state);
   }
 
-  // ─── STEP 7: PRODUCT SEARCH (MAIN LOGIC) ───
   switch (state.intent.type) {
     case 'price_query':
-      // ✅ FIX: price_query mein bhi productName se direct lookup try karo
       if (state.intent.productName) {
         const directProduct = await getProductByName(state.intent.productName);
         if (directProduct) {
@@ -149,23 +137,21 @@ export async function runAgenticWorkflow(query: string, sessionId: string): Prom
       if (state.intent.category) {
         state.products = await getTopRatedProducts(state.intent.category, 5);
       } else {
-        state.response = `Maaf karna! 😅 Main samajh nahi paayi. Kya aap mujhe bata sakte hain ki aapko kya chahiye?\n\n**Examples:**\n- "Laptop under 50000"\n- "Best headphones"\n- "Kitchen appliances dikhao"`;
+        state.response = 'Maaf karna! Main samajh nahi paayi. Kya aap mujhe bata sakte hain ki aapko kya chahiye?\n\n**Examples:**\n- "Laptop under 50000"\n- "Best headphones"\n- "Kitchen appliances dikhao"';
         state.isCompleted = true;
         return finalizeWorkflow(state);
       }
       break;
 
     default:
-      state.response = `Hmm... 🤔 Main aapki baat samajh nahi paayi. Kya aap dobara try kar sakte hain?`;
+      state.response = 'Hmm... Main aapki baat samajh nahi paayi. Kya aap dobara try kar sakte hain?';
       state.isCompleted = true;
       return finalizeWorkflow(state);
   }
 
-  // ─── STEP 8: GENERATE FINAL RESPONSE ───
   const generatedResponse = await generateLocalResponse(query, state.products, state.intent);
   state.response = (state.response || '') + generatedResponse;
 
-  // ─── STEP 9: UPDATE USER PROFILE ───
   if (state.intent && state.products.length > 0) {
     ChatMemory.updateUserProfile(sessionId, state.intent);
   }
@@ -177,4 +163,9 @@ export async function runAgenticWorkflow(query: string, sessionId: string): Prom
 function finalizeWorkflow(state: AgentState): AgentState {
   ChatMemory.addMessage(state.sessionId, 'assistant', state.response);
   return state;
+}
+
+function isValidCommonResponse(response: string, query: string): boolean {
+  const defaultPattern = /I understand your query regarding/i;
+  return !defaultPattern.test(response);
 }
