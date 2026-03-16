@@ -4,11 +4,17 @@
   "description": "🤖 AI-powered e-commerce chatbot — natural language se product search karo, budget filter karo, aur smart recommendations pao. Built with LangChain, LangGraph, ChromaDB aur Supabase. 🛒✨",
   "main": "dist/server.js",
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-      "start": "node dist/server.js",
-    "ingest": "tsx src/ingestion/dataIngestionPipeline.ts"
+    "start": "node dist/server.js",
+    "ingest": "tsx src/ingestion/dataIngestionPipeline.ts",
+    "clean": "rimraf dist",
+    "prebuild": "npm run clean"
   },
   "keywords": [
     "ai",
@@ -19,7 +25,9 @@
     "chromadb",
     "supabase",
     "fastify",
-    "recommendation"
+    "recommendation",
+    "typescript",
+    "nodejs"
   ],
   "author": {
     "name": "Rahul 👨‍💻",
@@ -35,6 +43,10 @@
     }
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mylikerahul/webchatbot"
+  },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
     "@fastify/static": "^7.0.1",
@@ -55,6 +67,7 @@
     "pino": "^8.19.0",
     "pino-pretty": "^11.0.0",
     "redis": "^4.6.13",
+    "rimraf": "^5.0.5",
     "uuid": "^9.0.1",
     "zod": "^3.22.4"
   },
