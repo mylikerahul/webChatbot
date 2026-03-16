@@ -41,7 +41,7 @@
     "@fastify/view": "^8.2.0",
     "@langchain/community": "^0.3.59",
     "@langchain/core": "^0.3.80",
-    "@langchain/langgraph": "^1.2.2",
+    "@langchain/langgraph": "^0.2.44",
     "@langchain/openai": "^0.3.0",
     "@supabase/supabase-js": "^2.39.8",
     "@xenova/transformers": "^2.17.1",
