@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server/fastifyServer.js",
+      "start": "node dist/server.js",
     "ingest": "tsx src/ingestion/dataIngestionPipeline.ts"
   },
   "keywords": [
